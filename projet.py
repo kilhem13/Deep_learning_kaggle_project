@@ -3,6 +3,7 @@ import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
 import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow import feature_column
+from sklearn.metrics import multilabel_confusion_matrix
 
 
 from keras.models import Sequential
@@ -120,3 +121,14 @@ model.fit(train_dataset,
           validation_data=val_dataset,
           epochs=10)
 show_batch(train_dataset)
+labels_val = visu_label[int(0.7*dataset_size)+1:,1:]
+labels_val = labels_val.drop(['sig_id'], axis=1)
+print(multilabel_confusion_matrix(result_prediction, labels_val))
+
+
+bool_res = []
+for row in result_prediction:
+    for col in row:
+        bool_res.append(col == max(row))
+
+print(sum(multilabel_confusion_matrix((labels_val > 0), np.asarray(bool_res).reshape(7144, 206))))
