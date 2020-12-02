@@ -3,7 +3,8 @@ import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
 import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow import feature_column
-from sklearn.metrics import multilabel_confusion_matrix
+from sklearn.metrics import multilabel_confusion_matrix, log_loss
+import tensorflow_addons as tfa
 
 
 from keras.models import Sequential
@@ -107,28 +108,54 @@ feature_layer = tf.keras.layers.DenseFeatures(feature_columns)
 
 model = tf.keras.Sequential([
     feature_layer,
-    layers.Dense(2048, activation='relu'),
-    layers.Dense(1024, activation='relu'),
-    layers.Dropout(.1),
-    layers.Dense(206)
+    layers.Dropout(0.3),
+    layers.BatchNormalization(),
+    tfa.layers.WeightNormalization(layers.Dense(256, activation='relu')),
+    layers.Dropout(0.3),
+    layers.BatchNormalization(),
+    layers.Dense(256, activation='elu'),
+    layers.Dropout(0.3),
+    layers.BatchNormalization(),
+    tfa.layers.WeightNormalization(layers.Dense(206, activation='softmax'))
 ])
 
 model.compile(optimizer='adam',
-              loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+              loss=tf.keras.losses.BinaryCrossentropy(),
               metrics=['accuracy'])
 
 model.fit(train_dataset,
           validation_data=val_dataset,
-          epochs=10)
+          epochs=5)
 show_batch(train_dataset)
-labels_val = visu_label[int(0.7*dataset_size)+1:,1:]
+
+labels_val = visu_label[int(0.7*dataset_size)+1:]
+labels_val = visu_label[:7144]
 labels_val = labels_val.drop(['sig_id'], axis=1)
 print(multilabel_confusion_matrix(result_prediction, labels_val))
 
+result_prediction = model.predict(train_dataset)
 
 bool_res = []
+index = []
 for row in result_prediction:
     for col in row:
         bool_res.append(col == max(row))
 
-print(sum(multilabel_confusion_matrix((labels_val > 0), np.asarray(bool_res).reshape(7144, 206))))
+labels_val = visu_label[:int(dataset_size*0.7)]
+
+print((multilabel_confusion_matrix((labels_val > 0), np.asarray(bool_res).reshape(7144, 206))))
+
+print(sum(multilabel_confusion_matrix((labels_val > 0), (labels_val > 0))))
+
+
+log_loss(labels_val, result_prediction)
+
+
+def metric(y_true, y_pred):
+    metrics = []
+    for i in range(y_pred.shape[1]):
+        if y_true[:, i].sum() > 1:
+            metrics.append(log_loss(y_true[:, i], y_pred[:, i].astype(float)))
+    return np.mean(metrics)
+
+print(f'OOF Metric: {metric(np.asarray(labels_val), np.asarray(result_prediction))}')
