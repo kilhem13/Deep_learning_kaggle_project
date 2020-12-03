@@ -42,7 +42,7 @@ def _preprocess_line(features, targets):
     features = dict(zip(visu_data.columns, features))
     #print(features)
     features.pop('sig_id')
-    features.pop('cp_time')
+    #features.pop('cp_time')
     #targets.pop('sig_id')
     targets = tf.stack(targets[1:])
     return features, targets
@@ -83,18 +83,27 @@ dataset = tf.data.Dataset.zip((features, targets))
 dataset_size = dataset.reduce(np.int64(0), lambda x, _:x+1).numpy()
 train_dataset = dataset.take(0.7*dataset_size)
 val_dataset = dataset.skip(0.7*dataset_size)
-val_dataset = dataset.take(dataset_size - 0.7*dataset_size)
+val_dataset = dataset.take(dataset_size - 0.7*dataset_size - 1000)
+last_validation = dataset.skip(0.7*dataset_size + dataset_size - 0.7*dataset_size - 1000)
+last_validation = dataset.take(1000)
+
+
 
 train_dataset = train_dataset.map(_preprocess_line).batch(32)
 val_dataset = val_dataset.map(_preprocess_line).batch(32)
+last_validation = last_validation.map(_preprocess_line).batch(32)
 
 
 all_columns = list(list(train_dataset.element_spec)[0].keys())
-categorical_columns = [all_columns[0], all_columns[1]]
-numerical_columns = all_columns[2:]
+categorical_columns = [all_columns[0], all_columns[2]]
+numerical_columns = all_columns[3:]
+cp_times = all_columns[1]
 #numerical_columns.append(all_columns[1])
 
 feature_columns = []
+cp_time = feature_column.categorical_column_with_vocabulary_list(cp_times, ["24", "48", "72"])
+indicator_column = feature_column.indicator_column(cp_time)
+feature_columns.append(indicator_column)
 
 for col in categorical_columns:
     categorical_column = feature_column.categorical_column_with_vocabulary_list(col, visu_data[col].unique())
@@ -110,7 +119,10 @@ model = tf.keras.Sequential([
     feature_layer,
     layers.Dropout(0.3),
     layers.BatchNormalization(),
-    tfa.layers.WeightNormalization(layers.Dense(256, activation='relu')),
+    tfa.layers.WeightNormalization(layers.Dense(512, activation='relu')),
+    layers.Dropout(0.3),
+    layers.BatchNormalization(),
+    layers.Dense(256, activation='elu'),
     layers.Dropout(0.3),
     layers.BatchNormalization(),
     layers.Dense(256, activation='elu'),
@@ -125,11 +137,11 @@ model.compile(optimizer='adam',
 
 model.fit(train_dataset,
           validation_data=val_dataset,
-          epochs=5)
+          epochs=7)
 show_batch(train_dataset)
 
 labels_val = visu_label[int(0.7*dataset_size)+1:]
-labels_val = visu_label[:7144]
+#labels_val = visu_label[:7144]
 labels_val = labels_val.drop(['sig_id'], axis=1)
 print(multilabel_confusion_matrix(result_prediction, labels_val))
 
@@ -150,6 +162,8 @@ print(sum(multilabel_confusion_matrix((labels_val > 0), (labels_val > 0))))
 
 log_loss(labels_val, result_prediction)
 
+labels_val = visu_label[dataset_size-1000:]
+labels_val = labels_val.drop(['sig_id'], axis=1)
 
 def metric(y_true, y_pred):
     metrics = []
